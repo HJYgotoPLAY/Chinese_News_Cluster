@@ -133,6 +133,8 @@ def one_pass_cluster2():
                 X_k = []
                 for index in value:
                     X_k.append(data[index]['feature_k_lsi'])
+                if len(X_k) == 1 and len(X_k[0]) == 0:
+                    continue
                 scoreList_ner = computeSimilarity_lsm(X_ner, feature_ner_lsi_now)
                 scoreList_k = computeSimilarity_lsm(X_k, feature_k_lsi_now)
                 score_average_ner = sum(scoreList_ner) / len(scoreList_ner)
