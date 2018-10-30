@@ -9,61 +9,8 @@ from gensim import corpora
 import numpy as np
 from gensim import corpora, models, similarities
 
-def one_pass_cluster():
-    data = []
-    for line in codecs.open('news_for_day/%d_ner_filter.txt' % day, encoding='utf8'):
-        line = json.loads(line)
-        line['type'] = -1
-        data.append(line)
-
-    # 获取文本特征，添加"feature_ner_tfidf"和"feature_ner_lsi"字段，保存文本的ner特征
-    texts = []
-    for news in data:
-        text = news['text_ner']
-        texts.append(text)
-    tfidf_vectors, lsi_vectors = get_tfidf_and_lsi(texts)
-    for i, ele in enumerate(data):
-        ele['feature_ner_tfidf'] = tfidf_vectors[i]
-        ele['feature_ner_lsi'] = lsi_vectors[i]
-
-    # one pass聚类
-    result = {0:[0]}
-    for i, news in enumerate(data):
-        print(i)
-        if i == 0:
-            continue
-        feature_ner_lsi_now = news['feature_ner_lsi']
-        if len(feature_ner_lsi_now) == 0:
-            result[len(result)] = [i]
-        else:
-            flag = False
-            for key in result:
-                index = result[key][0]
-                feature_ner_lsi = data[index]['feature_ner_lsi']
-                if len(feature_ner_lsi) == 0:
-                    continue
-                index_lsi = similarities.MatrixSimilarity([feature_ner_lsi_now])
-                sims_lsi = index_lsi[feature_ner_lsi][0]
-                if sims_lsi >= 0.9:
-                    result[key].append(i)
-                    flag = True
-                    break
-            if flag == False:
-                result[len(result)] = [i]
-
-    # 保存聚类结果，写入文件
-    fout = codecs.open('result_one_pass/%d.txt' % day, 'w', encoding='utf8')
-    for key in result:
-        value = result[key]
-        for index in value:
-            news = data[index]
-            _id = news['id']
-            title = news['title']
-            text = news['text']
-            strObj = str(key) + '#' + str(_id) + '#' + title + '#' + text + '\n'
-            fout.write(strObj)
-
 def computeSimilarity_lsm(X, query):
+    # 余弦相似度
     index = similarities.MatrixSimilarity(X)
     sims = index[query]
     scoreList = list(enumerate(sims))
@@ -82,79 +29,69 @@ def get_tfidf_and_lsi(corpus):
     lsi_vectors = lsi[tfidf_vectors]
     return tfidf_vectors, lsi_vectors
 
-def one_pass_cluster2():
+def one_pass_cluster():
     data = []
     for line in codecs.open('news_for_day/%d_ner_filter.txt' % day, encoding='utf8'):
         line = json.loads(line)
         line['type'] = -1
         data.append(line)
 
-    # 获取实体特征，添加"feature_ner_tfidf"和"feature_ner_lsi"字段
+    # 获取实体特征，添加"feature_ner_lsi"字段
     ners = []
     for news in data:
         text = news['text_ner']
         ners.append(text)
     tfidf_vectors_ner, lsi_vectors_ner = get_tfidf_and_lsi(ners)
     for i, ele in enumerate(data):
-        ele['feature_ner_tfidf'] = tfidf_vectors_ner[i]
         ele['feature_ner_lsi'] = lsi_vectors_ner[i]
 
-    # 获取关键词特征，添加"feature_k_tfidf"和"feature_k_lsi"字段
-    keywords = []
+    # 获取关键词特征，添加"feature_word_lsi"字段
+    words = []
     for news in data:
-        text = news['text_keywords']
-        text = [ele[0] for ele in text]
-        keywords.append(text)
-    tfidf_vectors_k, lsi_vectors_k = get_tfidf_and_lsi(keywords)
+        text = news['text_noun']
+        text.extend(news['text_verb'])
+        words.append(text)
+    tfidf_vectors_word, lsi_vectors_word = get_tfidf_and_lsi(words)
     for i, ele in enumerate(data):
-        ele['feature_k_tfidf'] = tfidf_vectors_k[i]
-        ele['feature_k_lsi'] = lsi_vectors_k[i]
+        ele['feature_word_lsi'] = lsi_vectors_word[i]
 
-    # one pass聚类
     result = {0: [0]}
     for i, news in enumerate(data):
         print(i)
         if i == 0:
             continue
         feature_ner_lsi_now = news['feature_ner_lsi']
-        feature_k_lsi_now = news['feature_k_lsi']
-        if len(feature_ner_lsi_now) == 0:
+        feature_word_lsi_now = news['feature_word_lsi']
+        if len(feature_word_lsi_now) == 0:
             result[len(result)] = [i]
         else:
-            scores_ner = {}
-            scores_k = {}
+            flag = False
             for key in result:
-                value = result[key]
-                X_ner = []
-                for index in value:
-                    X_ner.append(data[index]['feature_ner_lsi'])
-                if len(X_ner) == 1 and len(X_ner[0]) == 0:
+                index = result[key][0]
+                feature_ner_lsi = data[index]['feature_ner_lsi']
+                feature_word_lsi = data[index]['feature_word_lsi']
+                if len(feature_word_lsi) == 0:
                     continue
-                X_k = []
-                for index in value:
-                    X_k.append(data[index]['feature_k_lsi'])
-                if len(X_k) == 1 and len(X_k[0]) == 0:
-                    continue
-                scoreList_ner = computeSimilarity_lsm(X_ner, feature_ner_lsi_now)
-                scoreList_k = computeSimilarity_lsm(X_k, feature_k_lsi_now)
-                score_average_ner = sum(scoreList_ner) / len(scoreList_ner)
-                score_average_k = sum(scoreList_k) / len(scoreList_k)
-                scores_ner[key] = score_average_ner
-                scores_k[key] = score_average_k
-            scores_sort_ner = sorted(scores_ner.items(), key=lambda d: d[1], reverse=True)
-            scores_sort_k = sorted(scores_k.items(), key=lambda d: d[1], reverse=True)
-            max_score_ner = scores_sort_ner[0][1]
-            max_score_ner_index = scores_sort_ner[0][0]
-            max_score_k = scores_sort_k[0][1]
-            max_score_k_index = scores_sort_k
-
-            if max_score_ner >= 0.85 and max_score_k > 0.5 and max_score_ner_index == max_score_k_index:
-                result[scores_sort_ner[0][0]].append(i)
-            else:
+                index_word_lsi = similarities.MatrixSimilarity([feature_word_lsi_now])
+                sims_word_lsi = index_word_lsi[feature_word_lsi][0]
+                if len(feature_ner_lsi_now) == 0 or len(feature_ner_lsi) == 0:
+                    sims_ner_lsi = 0
+                else:
+                    index_ner_lsi = similarities.MatrixSimilarity([feature_ner_lsi_now])
+                    sims_ner_lsi = index_ner_lsi[feature_ner_lsi][0]
+                if sims_word_lsi >= 0.85 and sims_ner_lsi >= 0.35:
+                    result[key].append(i)
+                    flag = True
+                    break
+                elif sims_word_lsi >= 0.8 and sims_ner_lsi == 0:
+                    result[key].append(i)
+                    flag = True
+                    break
+            if flag == False:
                 result[len(result)] = [i]
 
     # 保存聚类结果，写入文件
-    fout = codecs.open('result_one_pass/%d_.txt' % day, 'w', encoding='utf8')
+    fout = codecs.open('result_one_pass/%d.txt' % day, 'w', encoding='utf8')
     for key in result:
         value = result[key]
         for index in value:
@@ -164,6 +101,90 @@ def one_pass_cluster2():
             text = news['text']
             strObj = str(key) + '#' + str(_id) + '#' + title + '#' + text + '\n'
             fout.write(strObj)
+    fout.close()
+
+def one_pass_cluster2():
+    data = []
+    for line in codecs.open('news_for_day/%d_ner_filter.txt' % day, encoding='utf8'):
+        line = json.loads(line)
+        line['type'] = -1
+        data.append(line)
+
+    # 获取实体特征，添加"feature_ner_lsi"字段
+    ners = []
+    for news in data:
+        text = news['text_ner']
+        ners.append(text)
+    tfidf_vectors_ner, lsi_vectors_ner = get_tfidf_and_lsi(ners)
+    for i, ele in enumerate(data):
+        ele['feature_ner_lsi'] = lsi_vectors_ner[i]
+
+    # 获取关键词特征，添加"feature_word_lsi"字段
+    words = []
+    for news in data:
+        text = news['text_noun']
+        text.extend(news['text_verb'])
+        words.append(text)
+    tfidf_vectors_word, lsi_vectors_word = get_tfidf_and_lsi(words)
+    for i, ele in enumerate(data):
+        ele['feature_word_lsi'] = lsi_vectors_word[i]
+
+    data_confirm = []
+    for ele in data:
+        if len(ele['feature_ner_lsi']) == 0 or len(ele['feature_word_lsi']) == 0:
+            continue
+        data_confirm.append(ele)
+
+    result = {0: [0]}
+    for i, news in enumerate(data_confirm):
+        print(i)
+        if i == 0:
+            continue
+        # if i >= 50:
+        #     break
+        feature_ner_lsi_now = news['feature_ner_lsi']
+        feature_word_lsi_now = news['feature_word_lsi']
+        feature_ner_lsi = []
+        feature_word_lsi = []
+        for key in result:
+            index = result[key][0]
+            vec_lsi = data_confirm[index]['feature_ner_lsi']
+            vec_word = data_confirm[index]['feature_word_lsi']
+            feature_ner_lsi.append(vec_lsi)
+            feature_word_lsi.append(vec_word)
+        index_ner_lsi = similarities.MatrixSimilarity(feature_ner_lsi)
+        sims_ner_lsi = index_ner_lsi[feature_ner_lsi_now]
+        index_word_lsi = similarities.MatrixSimilarity(feature_word_lsi)
+        sims_word_lsi = index_word_lsi[feature_word_lsi_now]
+
+        sims_ner = dict(enumerate(sims_ner_lsi))
+        sims_word = dict(enumerate(sims_word_lsi))
+
+        sims_ner_sort = sorted(sims_ner.items(), key=lambda d: d[1], reverse=True)
+        sims_word_sort = sorted(sims_word.items(), key=lambda d: d[1], reverse=True)
+
+        max_score_ner = sims_ner_sort[0][1]
+        max_score_ner_index = sims_ner_sort[0][0]
+        max_score_word = sims_word_sort[0][1]
+        max_score_word_index = sims_word_sort[0][0]
+
+        if max_score_word >= 0.85 and max_score_ner >= 0.35:
+            result[max_score_word_index].append(i)
+        else:
+            result[len(result)] = [i]
+
+    # 保存聚类结果，写入文件
+    fout = codecs.open('result_one_pass/%d.txt' % day, 'w', encoding='utf8')
+    for key in result:
+        value = result[key]
+        for index in value:
+            news = data[index]
+            _id = news['id']
+            title = news['title']
+            text = news['text']
+            strObj = str(key) + '#' + str(_id) + '#' + title + '#' + text + '\n'
+            fout.write(strObj)
+    fout.close()
 
 
 if __name__ == '__main__':
